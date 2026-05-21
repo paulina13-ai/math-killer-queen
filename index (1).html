@@ -1,0 +1,581 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Math Killer Queen</title>
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+  <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #0a0a0a; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel" data-presets="react">
+    const { useState, useEffect, useCallback } = React;
+
+    // ─── Constants ───────────────────────────────────────────────────────────────
+    const GOLD_TO_WIN = 10;
+    const SNAIL_STEPS = 10;
+    const QUEEN_HP = 5;
+
+    const ALL_GRADES = ['6th', '7th', '8th', '9th'];
+
+    const ALL_STRANDS = [
+      { key: 'Number Sense',         icon: '🔢', desc: 'Integers, fractions, decimals, place value' },
+      { key: 'Algebraic Reasoning',  icon: '🔣', desc: 'Expressions, equations, inequalities, functions' },
+      { key: 'Geometry',             icon: '📐', desc: 'Shapes, area, volume, transformations, proofs' },
+      { key: 'Statistics',           icon: '📊', desc: 'Data, probability, distributions, inference' },
+      { key: 'Ratios & Proportions', icon: '⚖️', desc: 'Rates, percents, scale, unit rates' },
+      { key: 'The Number System',    icon: '🧮', desc: 'Rational & irrational numbers, absolute value' },
+    ];
+
+    const TEAM_META = [
+      { key: 'A', label: 'Gold',    color: '#f5c842', emoji: '🟡' },
+      { key: 'B', label: 'Silver',  color: '#9ecfff', emoji: '🔵' },
+      { key: 'C', label: 'Crimson', color: '#f87171', emoji: '🔴' },
+      { key: 'D', label: 'Jade',    color: '#4ade80', emoji: '🟢' },
+    ];
+
+    // ─── API ─────────────────────────────────────────────────────────────────────
+    async function fetchQuestion(grades, strands, apiKey) {
+      const grade  = grades[Math.floor(Math.random() * grades.length)];
+      const strand = strands[Math.floor(Math.random() * strands.length)];
+      const prompt = `Generate a Common Core math multiple-choice question for a ${grade} grade student on the topic: ${strand}.
+Return ONLY a JSON object — no markdown, no preamble, no trailing text:
+{
+  "question": "the question text",
+  "choices": ["A) ...", "B) ...", "C) ...", "D) ..."],
+  "answer": "A",
+  "explanation": "brief explanation of the correct answer"
+}
+The question must be solvable by a ${grade} grader. Use clear, unambiguous wording.`;
+
+      const response = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01',
+        },
+        body: JSON.stringify({
+          model: 'claude-sonnet-4-20250514',
+          max_tokens: 1000,
+          messages: [{ role: 'user', content: prompt }],
+        }),
+      });
+      const data = await response.json();
+      const raw = data.content?.find(b => b.type === 'text')?.text || '';
+      const cleaned = raw.replace(/```json|```/g, '').trim();
+      const parsed = JSON.parse(cleaned);
+      return { ...parsed, grade, strand };
+    }
+
+    // ─── API Key Screen ───────────────────────────────────────────────────────────
+    function ApiKeyScreen({ onSave }) {
+      const [key, setKey] = useState('');
+      return (
+        <div style={{
+          minHeight: '100vh', background: '#0a0a0a',
+          display: 'flex', flexDirection: 'column', alignItems: 'center',
+          justifyContent: 'center', fontFamily: "'DM Sans', sans-serif", gap: 24,
+        }}>
+          <div style={{ fontFamily: "'Orbitron', sans-serif", fontSize: 32, color: '#f5c842', letterSpacing: 4 }}>MATH QUEEN</div>
+          <div style={{ color: '#555', fontSize: 13, maxWidth: 360, textAlign: 'center', lineHeight: 1.6 }}>
+            Enter your Anthropic API key to generate questions.
+            It is saved only in your browser's localStorage.
+          </div>
+          <input
+            type="password"
+            placeholder="sk-ant-..."
+            value={key}
+            onChange={e => setKey(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && key.trim() && onSave(key.trim())}
+            style={{
+              background: '#111', border: '1.5px solid #333', borderRadius: 8,
+              color: '#eee', fontFamily: "'DM Sans', sans-serif", fontSize: 14,
+              padding: '12px 16px', width: 340, outline: 'none',
+            }}
+          />
+          <button
+            onClick={() => key.trim() && onSave(key.trim())}
+            disabled={!key.trim()}
+            style={{
+              background: key.trim() ? '#f5c842' : '#222',
+              color: key.trim() ? '#0a0a0a' : '#444',
+              fontFamily: "'Orbitron', sans-serif", fontSize: 13, letterSpacing: 2,
+              padding: '12px 36px', borderRadius: 8, border: 'none',
+              cursor: key.trim() ? 'pointer' : 'not-allowed',
+              boxShadow: key.trim() ? '0 0 24px #f5c84255' : 'none',
+            }}
+          >CONTINUE</button>
+        </div>
+      );
+    }
+
+    // ─── ToggleChip ──────────────────────────────────────────────────────────────
+    function ToggleChip({ label, icon, active, onClick, accentColor = '#f5c842', small = false }) {
+      return (
+        <button onClick={onClick} style={{
+          background: active ? `${accentColor}1a` : 'transparent',
+          border: `1.5px solid ${active ? accentColor : '#333'}`,
+          color: active ? accentColor : '#555',
+          borderRadius: 8,
+          padding: small ? '6px 12px' : '8px 16px',
+          fontSize: small ? 11 : 12,
+          fontFamily: "'Orbitron', sans-serif",
+          letterSpacing: 1, cursor: 'pointer', transition: 'all 0.18s',
+          display: 'flex', alignItems: 'center', gap: 6,
+        }}>
+          {icon && <span style={{ fontSize: small ? 13 : 15 }}>{icon}</span>}
+          {label}
+        </button>
+      );
+    }
+
+    // ─── Config Screen ────────────────────────────────────────────────────────────
+    function ConfigScreen({ onStart }) {
+      const [numTeams, setNumTeams] = useState(2);
+      const [activeGrades, setActiveGrades]   = useState(new Set(['7th', '8th']));
+      const [activeStrands, setActiveStrands] = useState(new Set(ALL_STRANDS.map(s => s.key)));
+
+      const toggleGrade = g => setActiveGrades(prev => {
+        const next = new Set(prev);
+        if (next.has(g) && next.size === 1) return prev;
+        next.has(g) ? next.delete(g) : next.add(g);
+        return next;
+      });
+
+      const toggleStrand = s => setActiveStrands(prev => {
+        const next = new Set(prev);
+        if (next.has(s) && next.size === 1) return prev;
+        next.has(s) ? next.delete(s) : next.add(s);
+        return next;
+      });
+
+      const canStart = activeGrades.size > 0 && activeStrands.size > 0;
+
+      return (
+        <div style={{
+          minHeight: '100vh', background: '#0a0a0a',
+          display: 'flex', flexDirection: 'column', alignItems: 'center',
+          justifyContent: 'center', fontFamily: "'DM Sans', sans-serif",
+          padding: '40px 24px',
+        }}>
+          <div style={{ fontFamily: "'Orbitron', sans-serif", fontSize: 38, color: '#f5c842', letterSpacing: 4, marginBottom: 4 }}>MATH QUEEN</div>
+          <div style={{ color: '#444', fontSize: 12, letterSpacing: 2, marginBottom: 48 }}>THREE PATHS · INFINITE QUESTIONS</div>
+
+          <div style={{ display: 'flex', gap: 16, marginBottom: 48 }}>
+            {[
+              { icon: '🪙', label: 'GOLD RUSH',       desc: `Bank ${GOLD_TO_WIN} coins by answering correctly` },
+              { icon: '🐌', label: "SCHOLAR'S MARCH", desc: `Advance your scholar ${SNAIL_STEPS} steps to the finish` },
+              { icon: '⚔️', label: 'DETHRONING',      desc: "Drain the enemy Queen's HP to zero" },
+            ].map(w => (
+              <div key={w.label} style={{
+                background: '#111', border: '1px solid #222', borderRadius: 12,
+                padding: '18px 20px', width: 170, textAlign: 'center',
+              }}>
+                <div style={{ fontSize: 28, marginBottom: 8 }}>{w.icon}</div>
+                <div style={{ color: '#f5c842', fontFamily: "'Orbitron', sans-serif", fontSize: 9, letterSpacing: 1, marginBottom: 8 }}>{w.label}</div>
+                <div style={{ color: '#666', fontSize: 12, lineHeight: 1.5 }}>{w.desc}</div>
+              </div>
+            ))}
+          </div>
+
+          <div style={{ display: 'flex', gap: 40, alignItems: 'flex-start', flexWrap: 'wrap', justifyContent: 'center', maxWidth: 780 }}>
+            <div style={{ minWidth: 200 }}>
+              <div style={{ color: '#aaa', fontFamily: "'Orbitron', sans-serif", fontSize: 10, letterSpacing: 2, marginBottom: 14 }}>NUMBER OF TEAMS</div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                {[2, 3, 4].map(n => (
+                  <button key={n} onClick={() => setNumTeams(n)} style={{
+                    width: 48, height: 48,
+                    background: numTeams === n ? '#f5c84222' : 'transparent',
+                    border: `2px solid ${numTeams === n ? '#f5c842' : '#333'}`,
+                    color: numTeams === n ? '#f5c842' : '#555',
+                    borderRadius: 8, fontFamily: "'Orbitron', sans-serif",
+                    fontSize: 18, cursor: 'pointer', transition: 'all 0.18s',
+                  }}>{n}</button>
+                ))}
+              </div>
+              <div style={{ color: '#444', fontSize: 11, marginTop: 8 }}>
+                {TEAM_META.slice(0, numTeams).map(t => t.label).join(' · ')}
+              </div>
+            </div>
+
+            <div style={{ minWidth: 220 }}>
+              <div style={{ color: '#aaa', fontFamily: "'Orbitron', sans-serif", fontSize: 10, letterSpacing: 2, marginBottom: 14 }}>
+                GRADE LEVELS <span style={{ color: '#444' }}>({activeGrades.size} active)</span>
+              </div>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                {ALL_GRADES.map(g => (
+                  <ToggleChip key={g} label={g} active={activeGrades.has(g)} onClick={() => toggleGrade(g)} small />
+                ))}
+              </div>
+              <div style={{ color: '#444', fontSize: 11, marginTop: 8 }}>Questions will randomly sample active grades</div>
+            </div>
+
+            <div style={{ width: '100%', maxWidth: 680 }}>
+              <div style={{ color: '#aaa', fontFamily: "'Orbitron', sans-serif", fontSize: 10, letterSpacing: 2, marginBottom: 14 }}>
+                CONTENT STRANDS <span style={{ color: '#444' }}>({activeStrands.size} active)</span>
+              </div>
+              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                {ALL_STRANDS.map(s => (
+                  <div key={s.key} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <ToggleChip label={s.key} icon={s.icon} active={activeStrands.has(s.key)} onClick={() => toggleStrand(s.key)} />
+                    {activeStrands.has(s.key) && (
+                      <div style={{ color: '#444', fontSize: 10, paddingLeft: 4, maxWidth: 160 }}>{s.desc}</div>
+                    )}
+                  </div>
+                ))}
+              </div>
+              <div style={{ display: 'flex', gap: 12, marginTop: 10 }}>
+                <button onClick={() => setActiveStrands(new Set(ALL_STRANDS.map(s => s.key)))}
+                  style={{ background: 'none', border: 'none', color: '#555', fontSize: 11, cursor: 'pointer', textDecoration: 'underline' }}>Select all</button>
+                <button onClick={() => setActiveStrands(new Set([ALL_STRANDS[0].key]))}
+                  style={{ background: 'none', border: 'none', color: '#555', fontSize: 11, cursor: 'pointer', textDecoration: 'underline' }}>Clear all</button>
+              </div>
+            </div>
+          </div>
+
+          <button
+            onClick={() => canStart && onStart({ numTeams, grades: Array.from(activeGrades), strands: Array.from(activeStrands) })}
+            disabled={!canStart}
+            style={{
+              marginTop: 48,
+              background: canStart ? '#f5c842' : '#222',
+              color: canStart ? '#0a0a0a' : '#444',
+              fontFamily: "'Orbitron', sans-serif", fontSize: 14, letterSpacing: 2,
+              padding: '14px 52px', borderRadius: 8, border: 'none',
+              cursor: canStart ? 'pointer' : 'not-allowed',
+              boxShadow: canStart ? '0 0 30px #f5c84255' : 'none',
+              transition: 'all 0.2s',
+            }}>START GAME</button>
+        </div>
+      );
+    }
+
+    // ─── Scholar Track ────────────────────────────────────────────────────────────
+    function ScholarTrack({ teams, snailPos }) {
+      return (
+        <div style={{ background: '#111', border: '2px solid #222', borderRadius: 12, padding: '14px 16px', flex: 1 }}>
+          <div style={{ color: '#555', fontSize: 10, letterSpacing: 2, marginBottom: 10 }}>🐌 SCHOLAR'S MARCH</div>
+          {teams.map((t, ti) => (
+            <div key={t.key} style={{ position: 'relative', height: 28, marginBottom: ti < teams.length - 1 ? 6 : 0 }}>
+              <div style={{ position: 'absolute', top: '50%', left: 0, right: 0, height: 3, background: '#222', borderRadius: 2, transform: 'translateY(-50%)' }} />
+              {Array.from({ length: SNAIL_STEPS + 1 }).map((_, i) => (
+                <div key={i} style={{
+                  position: 'absolute', left: `${(i / SNAIL_STEPS) * 100}%`,
+                  top: '50%', transform: 'translate(-50%, -50%)',
+                  width: i === SNAIL_STEPS ? 14 : 6, height: i === SNAIL_STEPS ? 14 : 6,
+                  background: i === SNAIL_STEPS ? '#4ade80' : '#2a2a2a', borderRadius: '50%',
+                  border: i === SNAIL_STEPS ? '2px solid #22c55e' : 'none',
+                  fontSize: i === SNAIL_STEPS ? 10 : 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}>{i === SNAIL_STEPS ? '🏁' : ''}</div>
+              ))}
+              <div style={{
+                position: 'absolute', left: `${((snailPos[t.key] || 0) / SNAIL_STEPS) * 100}%`,
+                top: '50%', transform: 'translate(-50%, -50%)',
+                fontSize: 14, transition: 'left 0.5s ease',
+                filter: `drop-shadow(0 0 5px ${t.color})`, zIndex: 2,
+              }}>{t.emoji}</div>
+              <div style={{ position: 'absolute', right: -2, top: '50%', transform: 'translateY(-50%)', color: t.color, fontSize: 9, fontFamily: "'Orbitron', sans-serif" }}>
+                {snailPos[t.key] || 0}/{SNAIL_STEPS}
+              </div>
+            </div>
+          ))}
+        </div>
+      );
+    }
+
+    // ─── Team Panel ───────────────────────────────────────────────────────────────
+    function TeamPanel({ team, gold, queenHp, isActive }) {
+      return (
+        <div style={{
+          background: isActive ? `${team.color}18` : '#0f0f0f',
+          border: `2px solid ${isActive ? team.color : '#222'}`,
+          borderRadius: 12, padding: '12px 16px', minWidth: 130,
+          transition: 'all 0.3s', boxShadow: isActive ? `0 0 18px ${team.color}44` : 'none',
+        }}>
+          <div style={{ color: team.color, fontFamily: "'Orbitron', sans-serif", fontSize: 10, letterSpacing: 2, marginBottom: 8 }}>
+            {isActive ? '▶ ' : ''}{team.label.toUpperCase()}
+          </div>
+          <div style={{ color: '#f5c842', fontSize: 12, marginBottom: 4 }}>
+            {'🪙'.repeat(Math.min(gold, 5))}{gold > 5 ? <span style={{ fontSize: 10 }}> +{gold - 5}</span> : ''}
+          </div>
+          <div style={{ color: '#f5c842', fontFamily: "'Orbitron', sans-serif", fontSize: 9, marginBottom: 8 }}>{gold}/{GOLD_TO_WIN} coins</div>
+          <div style={{ fontSize: 13 }}>{'👑'.repeat(queenHp)}{'💀'.repeat(QUEEN_HP - queenHp)}</div>
+          <div style={{ color: '#444', fontFamily: "'Orbitron', sans-serif", fontSize: 9, marginTop: 2 }}>{queenHp}/{QUEEN_HP} HP</div>
+        </div>
+      );
+    }
+
+    // ─── Question Modal ───────────────────────────────────────────────────────────
+    function QuestionModal({ q, team, onAnswer }) {
+      const [selected, setSelected] = useState(null);
+      const [revealed, setRevealed] = useState(false);
+      const [correct, setCorrect]   = useState(null);
+      useEffect(() => { setSelected(null); setRevealed(false); setCorrect(null); }, [q]);
+
+      const handleChoice = letter => {
+        if (revealed) return;
+        setSelected(letter);
+        const ok = letter === q.answer;
+        setCorrect(ok);
+        setRevealed(true);
+        setTimeout(() => onAnswer(ok), 1800);
+      };
+
+      const letters = ['A', 'B', 'C', 'D'];
+      return (
+        <div style={{
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.88)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100,
+        }}>
+          <div style={{
+            background: '#141414', border: `2px solid ${team.color}`,
+            borderRadius: 18, padding: 32, maxWidth: 560, width: '92%',
+            boxShadow: `0 0 50px ${team.color}33`,
+          }}>
+            <div style={{ color: team.color, fontFamily: "'Orbitron', sans-serif", fontSize: 10, letterSpacing: 2, marginBottom: 4 }}>
+              {team.label.toUpperCase()} TEAM
+            </div>
+            <div style={{ color: '#555', fontSize: 11, marginBottom: 16 }}>{q.strand} · {q.grade} grade</div>
+            <div style={{ color: '#fff', fontSize: 17, lineHeight: 1.65, marginBottom: 24 }}>{q.question}</div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+              {q.choices.map((choice, i) => {
+                const letter = letters[i];
+                const isCorrect  = letter === q.answer;
+                const isSelected = letter === selected;
+                let bg = '#1c1c1c';
+                if (revealed) bg = isCorrect ? '#14532d' : isSelected ? '#7f1d1d' : '#1c1c1c';
+                return (
+                  <button key={letter} onClick={() => handleChoice(letter)} style={{
+                    background: bg,
+                    border: `1.5px solid ${revealed && isCorrect ? '#4ade80' : revealed && isSelected ? '#f87171' : '#2a2a2a'}`,
+                    borderRadius: 8, padding: '11px 14px', color: '#eee',
+                    fontSize: 14, textAlign: 'left', cursor: revealed ? 'default' : 'pointer',
+                    transition: 'all 0.2s', fontFamily: "'DM Sans', sans-serif",
+                  }}>
+                    <span style={{ color: team.color, fontWeight: 700, marginRight: 8 }}>{letter}</span>
+                    {choice.slice(3)}
+                  </button>
+                );
+              })}
+            </div>
+            {revealed && (
+              <div style={{
+                marginTop: 18, padding: 14,
+                background: correct ? '#14532d' : '#450a0a',
+                borderRadius: 8, color: correct ? '#4ade80' : '#f87171',
+                fontSize: 13, lineHeight: 1.5,
+              }}>
+                {correct ? '✅ Correct! ' : '❌ Incorrect. '}{q.explanation}
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    // ─── Win Screen ───────────────────────────────────────────────────────────────
+    function WinScreen({ team, reason, onReset }) {
+      return (
+        <div style={{
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.93)',
+          display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', zIndex: 200,
+        }}>
+          <div style={{ fontSize: 64, marginBottom: 16 }}>{team.emoji}</div>
+          <div style={{ fontFamily: "'Orbitron', sans-serif", fontSize: 42, color: team.color, marginBottom: 8, letterSpacing: 2 }}>
+            {team.label.toUpperCase()} WINS!
+          </div>
+          <div style={{ color: '#666', fontSize: 16, marginBottom: 48 }}>{reason}</div>
+          <button onClick={onReset} style={{
+            background: 'transparent', border: `2px solid ${team.color}`,
+            color: team.color, fontFamily: "'Orbitron', sans-serif",
+            fontSize: 13, padding: '12px 36px', borderRadius: 8, cursor: 'pointer', letterSpacing: 2,
+          }}>PLAY AGAIN</button>
+        </div>
+      );
+    }
+
+    // ─── Game ─────────────────────────────────────────────────────────────────────
+    function Game({ config, apiKey, onReset }) {
+      const teams = TEAM_META.slice(0, config.numTeams);
+      const initObj = val => Object.fromEntries(teams.map(t => [t.key, val]));
+
+      const [gold,    setGold]    = useState(initObj(0));
+      const [snail,   setSnail]   = useState(initObj(0));
+      const [queenHp, setQueenHp] = useState(initObj(QUEEN_HP));
+      const [turnIdx, setTurnIdx] = useState(0);
+      const [question, setQuestion] = useState(null);
+      const [loading,  setLoading]  = useState(false);
+      const [mode,     setMode]     = useState(null);
+      const [winner,   setWinner]   = useState(null);
+      const [winReason, setWinReason] = useState('');
+      const [log, setLog] = useState([]);
+
+      const activeTeam = teams[turnIdx % teams.length];
+      const addLog = msg => setLog(p => [msg, ...p].slice(0, 7));
+
+      const checkWin = useCallback((g, s, hp) => {
+        for (const t of teams) {
+          if (g[t.key] >= GOLD_TO_WIN) return { team: t, reason: '🪙 Gold Rush — coins banked!' };
+          if (s[t.key] >= SNAIL_STEPS) return { team: t, reason: "🐌 Scholar's March — finish line reached!" };
+        }
+        for (const t of teams) {
+          if (hp[t.key] <= 0) {
+            const attacker = teams.find(x => x.key !== t.key) || teams[0];
+            return { team: attacker, reason: `👑 Dethroning — ${t.label} Queen fell!` };
+          }
+        }
+        return null;
+      }, [teams]);
+
+      const startRound = async selectedMode => {
+        setMode(selectedMode);
+        setLoading(true);
+        try {
+          const q = await fetchQuestion(config.grades, config.strands, apiKey);
+          setQuestion(q);
+        } catch {
+          addLog('⚠️ Question failed to load, skipping turn');
+          setMode(null);
+          setTurnIdx(i => i + 1);
+        }
+        setLoading(false);
+      };
+
+      const handleAnswer = correct => {
+        const others = teams.filter(t => t.key !== activeTeam.key);
+        const target  = others[Math.floor(Math.random() * others.length)];
+        const newGold  = { ...gold };
+        const newSnail = { ...snail };
+        const newHp    = { ...queenHp };
+
+        if (correct) {
+          if (mode === 'gold') {
+            newGold[activeTeam.key] += 1;
+            addLog(`✅ ${activeTeam.label} banks a coin! (${newGold[activeTeam.key]}/${GOLD_TO_WIN})`);
+          } else if (mode === 'snail') {
+            newSnail[activeTeam.key] = Math.min(newSnail[activeTeam.key] + 1, SNAIL_STEPS);
+            addLog(`✅ ${activeTeam.label} scholar advances! (${newSnail[activeTeam.key]}/${SNAIL_STEPS})`);
+          } else if (mode === 'military') {
+            newHp[target.key] = Math.max(0, newHp[target.key] - 1);
+            addLog(`✅ ${activeTeam.label} hits ${target.label}! ${target.label} HP: ${newHp[target.key]}/${QUEEN_HP}`);
+          }
+        } else {
+          addLog(`❌ ${activeTeam.label} missed. No progress.`);
+        }
+
+        setGold(newGold); setSnail(newSnail); setQueenHp(newHp);
+        setQuestion(null); setMode(null);
+
+        const w = checkWin(newGold, newSnail, newHp);
+        if (w) { setWinner(w.team); setWinReason(w.reason); return; }
+        setTurnIdx(i => i + 1);
+      };
+
+      const others = teams.filter(t => t.key !== activeTeam.key);
+
+      return (
+        <div style={{ minHeight: '100vh', background: '#0a0a0a', display: 'flex', flexDirection: 'column', fontFamily: "'DM Sans', sans-serif" }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 28px', borderBottom: '1px solid #1a1a1a' }}>
+            <div style={{ fontFamily: "'Orbitron', sans-serif", fontSize: 18, color: '#f5c842', letterSpacing: 3 }}>MATH QUEEN</div>
+            <div style={{ color: activeTeam.color, fontFamily: "'Orbitron', sans-serif", fontSize: 11, letterSpacing: 2 }}>
+              {activeTeam.label.toUpperCase()} TEAM'S TURN
+            </div>
+            <button onClick={onReset} style={{ background: 'transparent', border: '1px solid #2a2a2a', color: '#444', padding: '6px 14px', borderRadius: 6, cursor: 'pointer', fontSize: 11 }}>↩ RESTART</button>
+          </div>
+
+          <div style={{ display: 'flex', gap: 12, padding: '16px 28px', alignItems: 'stretch' }}>
+            {teams.map(t => (
+              <TeamPanel key={t.key} team={t} gold={gold[t.key]} queenHp={queenHp[t.key]} isActive={t.key === activeTeam.key} />
+            ))}
+            <ScholarTrack teams={teams} snailPos={snail} />
+          </div>
+
+          <div style={{ padding: '0 28px 24px', flex: 1 }}>
+            <div style={{ color: activeTeam.color, fontFamily: "'Orbitron', sans-serif", fontSize: 10, letterSpacing: 2, marginBottom: 14 }}>
+              {activeTeam.label.toUpperCase()} — CHOOSE YOUR PATH
+            </div>
+            <div style={{ display: 'flex', gap: 14 }}>
+              {[
+                { key: 'gold',     icon: '🪙', label: 'GOLD RUSH',       desc: `Answer correctly to bank a coin. First to ${GOLD_TO_WIN} wins.`,              progress: `${gold[activeTeam.key]}/${GOLD_TO_WIN} coins` },
+                { key: 'snail',    icon: '🐌', label: "SCHOLAR'S MARCH", desc: 'Advance your scholar one step. First to reach the finish wins.',            progress: `${snail[activeTeam.key]}/${SNAIL_STEPS} steps` },
+                { key: 'military', icon: '⚔️', label: 'DETHRONING',      desc: "Attack a random opponent's Queen. Drain their HP to 0 to knock them out.", progress: `${others.length} target${others.length > 1 ? 's' : ''}` },
+              ].map(opt => (
+                <button key={opt.key}
+                  onClick={() => !loading && !question && startRound(opt.key)}
+                  disabled={loading || !!question}
+                  style={{
+                    flex: 1, background: '#0f0f0f',
+                    border: `2px solid ${mode === opt.key ? activeTeam.color : '#222'}`,
+                    borderRadius: 14, padding: '22px 18px', cursor: loading || question ? 'not-allowed' : 'pointer',
+                    textAlign: 'left', opacity: loading || question ? 0.45 : 1, transition: 'all 0.2s',
+                  }}
+                  onMouseEnter={e => { if (!loading && !question) e.currentTarget.style.borderColor = activeTeam.color; }}
+                  onMouseLeave={e => { if (mode !== opt.key) e.currentTarget.style.borderColor = '#222'; }}
+                >
+                  <div style={{ fontSize: 28, marginBottom: 10 }}>{opt.icon}</div>
+                  <div style={{ color: activeTeam.color, fontFamily: "'Orbitron', sans-serif", fontSize: 10, letterSpacing: 1, marginBottom: 8 }}>{opt.label}</div>
+                  <div style={{ color: '#666', fontSize: 13, lineHeight: 1.5, marginBottom: 12 }}>{opt.desc}</div>
+                  <div style={{ color: '#3a3a3a', fontFamily: "'Orbitron', sans-serif", fontSize: 9 }}>{opt.progress}</div>
+                </button>
+              ))}
+            </div>
+
+            <div style={{ marginTop: 14, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+              <span style={{ color: '#333', fontSize: 10, fontFamily: "'Orbitron', sans-serif" }}>DRAWING FROM:</span>
+              {config.grades.map(g => (
+                <span key={g} style={{ background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: 4, padding: '2px 8px', color: '#555', fontSize: 10, fontFamily: "'Orbitron', sans-serif" }}>{g}</span>
+              ))}
+              <span style={{ color: '#2a2a2a' }}>·</span>
+              {config.strands.map(s => (
+                <span key={s} style={{ background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: 4, padding: '2px 8px', color: '#555', fontSize: 10 }}>{s}</span>
+              ))}
+            </div>
+
+            {loading && !question && (
+              <div style={{ color: '#333', textAlign: 'center', marginTop: 20, fontFamily: "'Orbitron', sans-serif", fontSize: 10, letterSpacing: 2 }}>GENERATING QUESTION...</div>
+            )}
+
+            <div style={{ marginTop: 20, background: '#0d0d0d', border: '1px solid #1a1a1a', borderRadius: 10, padding: 14 }}>
+              <div style={{ color: '#333', fontSize: 9, letterSpacing: 2, marginBottom: 8, fontFamily: "'Orbitron', sans-serif" }}>GAME LOG</div>
+              {log.length === 0
+                ? <div style={{ color: '#2a2a2a', fontSize: 12 }}>No activity yet. Choose a path to begin.</div>
+                : log.map((l, i) => <div key={i} style={{ color: i === 0 ? '#888' : '#333', fontSize: 12, marginBottom: 3 }}>{l}</div>)
+              }
+            </div>
+          </div>
+
+          {question && <QuestionModal q={question} team={activeTeam} onAnswer={handleAnswer} />}
+          {winner   && <WinScreen team={winner} reason={winReason} onReset={onReset} />}
+        </div>
+      );
+    }
+
+    // ─── Root ─────────────────────────────────────────────────────────────────────
+    function App() {
+      const [apiKey, setApiKey] = useState(() => localStorage.getItem('mkq_api_key') || '');
+      const [config, setConfig] = useState(null);
+
+      const saveKey = key => {
+        localStorage.setItem('mkq_api_key', key);
+        setApiKey(key);
+      };
+
+      if (!apiKey) return <ApiKeyScreen onSave={saveKey} />;
+      return config
+        ? <Game config={config} apiKey={apiKey} onReset={() => setConfig(null)} />
+        : <ConfigScreen onStart={setConfig} />;
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>
